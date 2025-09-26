@@ -1,11 +1,10 @@
-# api_water_server.py
 from flask import Flask, request, jsonify
 import pandas as pd
 import numpy as np
 import joblib
 
-# 🔑 FIX: Import the function directly from its defining module (e.g., model1f.py).
-# This prevents Gunicorn from failing when joblib tries to find the function.
+# 🔑 FIX: Import the function directly from the module where it is defined.
+# The metadata file (water_metadata.joblib) no longer contains this function.
 from aquajeevan_model1f import predict_likely_diseases_with_reasons 
 
 # ----------------- Initialize Flask -----------------
@@ -16,7 +15,7 @@ try:
     # 1. Load the ML model (your classifier)
     MODEL = joblib.load('water_safety_model.joblib')
     
-    # 2. Load the metadata (which must now NOT contain the function)
+    # 2. Load the metadata (which now ONLY contains the 'features' list)
     METADATA = joblib.load('water_metadata.joblib')
 
     # Get features list from the clean metadata
@@ -26,12 +25,12 @@ try:
     print(f"Expected features: {FEATURES}")
 
 except FileNotFoundError:
-    print("FATAL ERROR: water_safety_model.joblib or water_metadata.joblib not found. Exiting.")
+    print("FATAL ERROR: water_safety_model.joblib or water_metadata.joblib not found. Ensure they are in the deployment root.")
     # Exiting is appropriate for deployment failure
     exit()
 except Exception as e:
-    # Catch any other loading errors
-    print(f"FATAL ERROR loading model components: {str(e)}. Exiting.")
+    # This catch handles the joblib serialization error if the metadata file was NOT regenerated correctly.
+    print(f"FATAL ERROR loading model components: {str(e)}. The most common cause is a function reference saved in a .joblib file. Please re-run the training script.")
     exit()
 
 # ----------------- API Endpoints -----------------
@@ -47,20 +46,22 @@ def predict_water():
         if not data:
             return jsonify({'error': 'No JSON data provided'}), 400
 
-        # Create DataFrame for ML prediction, filling missing values safely
+        # Create DataFrame for ML prediction, filling missing features with a fallback value
         input_data = {}
         for feat in FEATURES:
             if feat in data:
+                # Use the provided data value
                 input_data[feat] = data[feat]
             else:
-                # 💡 Fallback: Use a random value or a default mean/median for missing features
-                # This ensures the model receives all expected features.
+                # 💡 Fallback: Use a random value for features missing from the request payload
                 input_data[feat] = np.random.uniform(0.5, 1.0) 
         
+        # Create a DataFrame containing all required features
         input_df = pd.DataFrame([input_data])
 
 
         # ML prediction
+        # Ensure only the expected FEATURES columns are passed to the model
         ml_pred = MODEL.predict(input_df[FEATURES])[0]  # 0 = safe, 1 = unsafe
         ml_pred_label = 'UNSAFE' if ml_pred == 1 else 'SAFE'
         
@@ -69,7 +70,7 @@ def predict_water():
 
 
         # Rule-based disease prediction
-        # 🔑 FIX: Call the imported function directly
+        # Call the imported function directly, passing the single input row (Series)
         disease_predictions = predict_likely_diseases_with_reasons(input_df.iloc[0])
 
 
@@ -86,14 +87,13 @@ def predict_water():
     except Exception as e:
         # Log the error for debugging
         print(f"Prediction Error: {str(e)}") 
-        return jsonify({'error': f'An unexpected error occurred during prediction.'}), 500
+        return jsonify({'error': f'An unexpected error occurred during prediction: {str(e)}'}), 500
 
 @app.route('/')
 def index():
     return "Water Safety Prediction API is running. Use the /predict_water endpoint (POST) for predictions."
 
 # ----------------- Run Server -----------------
-# Gunicorn handles the main execution command in production. 
-# This is for local testing.
 if __name__ == '__main__':
+    # Running locally for testing (Gunicorn handles this in production)
     app.run(host='0.0.0.0', port=5000)

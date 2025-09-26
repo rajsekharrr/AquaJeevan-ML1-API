@@ -5,7 +5,7 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import accuracy_score, classification_report
 from datetime import timedelta, date
 from collections import defaultdict
-import joblib # <-- NEW: Import for saving/loading the model
+import joblib 
 import os
 
 # --- 1. DATA GENERATION FUNCTION ---
@@ -143,40 +143,32 @@ def get_random_value(param_name):
 # --- MAIN SCRIPT ---
 if __name__ == '__main__':
     try:
-        # Step 1: Generate the dataset
+        # Step 1-6 (Data generation, labeling, training, and evaluation) remain the same
+
         df = generate_water_quality_data(num_rows=2000)
-
-        # Step 2: Apply the labeling function
         df = label_water_safety(df)
-
-        # Save the dataset to a CSV file for documentation
         csv_filename = "water_quality_data.csv"
         df.to_csv(csv_filename, index=False)
         print(f"\nDataset saved to '{csv_filename}'.")
 
-        # Step 3: Prepare the data for the ML model
         features = ['turbidity', 'pH', 'temperature', 'conductivity', 'tds', 'chloramines', 'sulfate', 'rainfall_7d', 'flow']
         X = df[features]
         y = df['water_unsafe']
 
-        # Step 4: Split the data into training and testing sets
         X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
 
         print("\nTraining a RandomForestClassifier model...")
-        # Step 5: Initialize and train the ML model
         model = RandomForestClassifier(n_estimators=100, random_state=42)
         model.fit(X_train, y_train)
 
-        # Step 6: Evaluate the model
         y_pred = model.predict(X_test)
-
         print("\n--- Model Evaluation ---")
         print(f"Accuracy: {accuracy_score(y_test, y_pred):.4f}")
         print("\nClassification Report:")
         print(classification_report(y_test, y_pred, target_names=['Safe', 'Unsafe']))
 
         # ===================================================================
-        # STEP 7: SAVE THE TRAINED MODEL AND METADATA FOR DEPLOYMENT (NEW)
+        # STEP 7: SAVE THE TRAINED MODEL AND METADATA FOR DEPLOYMENT (FIXED)
         # ===================================================================
 
         model_filename = 'water_safety_model.joblib'
@@ -187,22 +179,23 @@ if __name__ == '__main__':
         print(f"\n✅ Trained Model saved as '{model_filename}'")
 
         # 7b. Save the features (metadata) required by the model
+        # 🔑 FIX: REMOVE the function reference from the dictionary before saving it.
         model_metadata = {
             'features': features,
-            # We don't save output classes here, as it's binary (0/1) but store the rule-based prediction function
-            'disease_predictor': predict_likely_diseases_with_reasons
+            # ❌ DELETED: 'disease_predictor': predict_likely_diseases_with_reasons 
         }
         joblib.dump(model_metadata, metadata_filename)
-        print(f"✅ Model Metadata saved as '{metadata_filename}'")
-        joblib.dump(model_metadata, metadata_filename)
+        print(f"✅ Model Metadata saved as '{metadata_filename}' (Function reference removed for Gunicorn compatibility).")
+        
+        # NOTE: Removed the redundant second joblib.dump(model_metadata, metadata_filename)
+        
         # ===================================================================
-        # Interactive Prediction App (Optional after model saved)
+        # Interactive Prediction App (The rest of the script is fine)
         # ===================================================================
-
+        # ... (Rest of the interactive input loop and prediction display remains the same)
         print("\n--- Interactive Prediction App ---")
         print("Enter water quality data or leave an entry blank to use a random value.")
 
-        # ... (Rest of the interactive input loop and prediction display remains the same)
         user_input = {}
         input_prompts = {
             'turbidity': 'Enter Turbidity (NTU): ',
@@ -271,5 +264,4 @@ if __name__ == '__main__':
     except Exception as e:
         # If the script fails, print the error and exit gracefully
         print(f"\nAn error occurred: {e}")
-        # Optionally, print a traceback for debugging: import traceback; traceback.print_exc()
         print("Exiting application.")
