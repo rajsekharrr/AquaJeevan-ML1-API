@@ -194,7 +194,7 @@ if __name__ == '__main__':
         }
         joblib.dump(model_metadata, metadata_filename)
         print(f"✅ Model Metadata saved as '{metadata_filename}'")
-        
+        joblib.dump(model_metadata, metadata_filename)
         # ===================================================================
         # Interactive Prediction App (Optional after model saved)
         # ===================================================================
