@@ -1,21 +1,17 @@
+# api_water_server.py
 import joblib
 import pandas as pd
 from flask import Flask, request, jsonify
 from collections import defaultdict
 import numpy as np
-import os
-import sys
 
-# ----------------- Initialize Flask -----------------
-app = Flask(__name__)
-
-# ----------------- Helper Functions (Must be defined here!) -----------------
-# These functions are needed by the metadata and must be defined in the API file.
+# --- NOTE: The rule-based functions MUST be included here for joblib to load them ---
 
 def predict_likely_diseases_with_reasons(row):
     """
     Predicts the most likely water-borne diseases and the reasons for their likelihood.
-    This is a rule-based function, not a trained ML model.
+    This is a rule-based function, NOT a trained ML model prediction.
+    It takes a single row (Series) of water quality data.
     """
     disease_reasons = defaultdict(list)
 
@@ -59,7 +55,7 @@ def predict_likely_diseases_with_reasons(row):
         disease_reasons["typhoid"].append("High-pressure leaks can suck in contaminated groundwater or soil, leading to typhoid outbreaks.")
 
     if not disease_reasons:
-        return [{"disease": "No specific diseases likely", "reasons": ["Water quality parameters are within safe limits."]}]
+        return [{"disease": "None identified", "reasons": ["Water quality parameters are within safe limits."]}]
 
     # Format the output into a more readable list of dicts
     output = []
@@ -70,24 +66,41 @@ def predict_likely_diseases_with_reasons(row):
         })
     return output
 
-# ----------------- Load Model & Metadata -----------------
-try:
-    # Use explicit path join for deployment safety
-    MODEL_PATH = os.path.join(os.getcwd(), 'water_safety_model.joblib')
-    METADATA_PATH = os.path.join(os.getcwd(), 'water_metadata.joblib')
 
-    MODEL = joblib.load(MODEL_PATH)
-    METADATA = joblib.load(METADATA_PATH)
+# --- Helper function needed for joblib compatibility (even if not used directly by API) ---
+# This ensures that all components referenced during the model saving process are available globally.
+def get_random_value(param_name):
+     # This function is usually not needed in the API server itself, 
+     # but including it resolves potential dependency issues from the joblib load process.
+     return 0.0 
+     
+# ----------------- Initialize Flask -----------------
+app = Flask(__name__)
+
+# ----------------- Load Model & Metadata -----------------
+# We load the model safely by ensuring all required functions are defined first.
+try:
+    # Use the global context to ensure the function is recognized during joblib loading
+    MODEL = joblib.load('water_safety_model.joblib')
+    METADATA = joblib.load('water_metadata.joblib')
 
     FEATURES = METADATA['features']
-    DISEASE_FUNC = METADATA['disease_predictor']
+    # The function is already globally defined, resolving the error
+    DISEASE_FUNC = METADATA['disease_predictor'] 
 
     print("✅ Water Safety Model and metadata loaded successfully.")
     print(f"Expected features: {FEATURES}")
 
+except FileNotFoundError:
+    # Exit gracefully if model files are missing during deployment setup
+    print("Error: water_safety_model.joblib or water_metadata.joblib not found.")
+    # On Render, this will cause the service to fail startup as expected
+    exit()
 except Exception as e:
-    print(f"Error loading model files: {e}")
-    sys.exit(1) # Exit if essential files can't be loaded
+    # Catching the specific joblib reference error if it occurs
+    print(f"Error loading model files: {str(e)}")
+    exit()
+
 
 # ----------------- API Endpoints -----------------
 
@@ -111,17 +124,18 @@ def predict_water():
                 'required': FEATURES
             }), 400
 
-        # Create DataFrame
+        # Create DataFrame from input data
         input_df = pd.DataFrame([[data[f] for f in FEATURES]], columns=FEATURES)
 
         # ML prediction
         ml_pred = MODEL.predict(input_df)[0]  # 0 = safe, 1 = unsafe
-        ml_prob = MODEL.predict_proba(input_df)[0][1]  # probability of being unsafe
+        # Probability of being the "unsafe" class (index 1)
+        ml_prob = MODEL.predict_proba(input_df)[0][1] 
 
-        # Rule-based disease prediction (uses the function defined above)
+        # Rule-based disease prediction (Uses the function loaded from metadata)
         disease_preds = DISEASE_FUNC(input_df.iloc[0])
 
-        # Prepare output JSON
+        # Prepare final output JSON
         response = {
             'status': 'success',
             'water_status': 'UNSAFE' if ml_pred == 1 else 'SAFE',
@@ -132,8 +146,7 @@ def predict_water():
         return jsonify(response), 200
 
     except Exception as e:
-        # Catch unexpected runtime errors and return a 500 status
-        return jsonify({'error': f'An unexpected server error occurred: {str(e)}'}), 500
+        return jsonify({'error': f'An unexpected error occurred: {str(e)}'}), 500
 
 # Optional health check
 @app.route('/health', methods=['GET'])
@@ -141,6 +154,6 @@ def health():
     return jsonify({'status': 'Water Model API is running'}), 200
 
 # ----------------- Run Server -----------------
-# We use port 5001 only for local testing. Render will use port 80 or a system-assigned port.
+# We use port 5001 locally but Render/Gunicorn will handle the port in production
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5001)
