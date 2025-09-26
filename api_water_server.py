@@ -6,7 +6,7 @@ import joblib
 
 # 🔑 FIX: Import the function directly from its defining module (e.g., model1f.py).
 # This prevents Gunicorn from failing when joblib tries to find the function.
-from model1f import predict_likely_diseases_with_reasons  
+from aquajeevan_model1f import predict_likely_diseases_with_reasons 
 
 # ----------------- Initialize Flask -----------------
 app = Flask(__name__)
